@@ -1,12 +1,12 @@
+# Generate a fully cleaned deployable version of the Streamlit app
+from textwrap import dedent
 
-import pandas as pd
-
-# Build the expected structure of app.py for Streamlit with all logic combined
-streamlit_app_code = """
+final_app_code = dedent("""
 import streamlit as st
 import fitz  # PyMuPDF
 import pandas as pd
 import re
+from collections import defaultdict
 
 # ---------------------- PDF Processing Functions ---------------------- #
 def extract_text_from_pdf(uploaded_file):
@@ -450,9 +450,8 @@ def parse_bca_statement(pdf_path):
 
     return personal_df, summary_df, txn_df, analytics_df
 
-jan_pdf_path = f"/content/drive/.shortcut-targets-by-id/{folder_id}/Kemilau_Phala_Wijaya_PT/BCA KPW 5599 Jan 2025.pdf"
-personal_df_jan, summary_df_jan, transactions_df_jan, analytics_df_jan = parse_bca_statement(jan_pdf_path)
-
+# jan_pdf_path = f"/content/drive/.shortcut-targets-by-id/{folder_id}/Kemilau_Phala_Wijaya_PT/BCA KPW 5599 Jan 2025.pdf"
+# personal_df_jan, summary_df_jan, transactions_df_jan, analytics_df_jan = parse_bca_statement(jan_pdf_path)
 
 
 # ---------------------- Streamlit App UI ---------------------- #
@@ -464,25 +463,44 @@ uploaded_pdf = st.file_uploader("Upload a BCA PDF e-statement", type="pdf")
 if uploaded_pdf:
     st.success("✅ PDF uploaded. Processing...")
 
-    personal_df_jan, summary_df_jan, transactions_df_jan, analytics_df_jan = parse_bca_statement(uploaded_pdf)
+    # full_text = extract_text_from_pdf(uploaded_pdf)
+    # personal_info = extract_personal_info(full_text)
+    # summary_info = extract_monthly_summary(full_text)
+    # transactions = extract_transactions(full_text)
 
-    col1, col2 = st.columns(2)
+    personal_df, summary_df, txn_df, analytics_df = parse_bca_statement(uploaded_pdf)
 
-    with col1:
+    personal_df = pd.DataFrame([personal_df])
+    summary_df = pd.DataFrame([summary_df])
+    txn_df = pd.DataFrame(txn_df)
+    analytics = calculate_additional_analytics(txn_df, summary_df)
+    analytics_df = pd.DataFrame([analytics_df])
+
+    tab1, tab2, tab3, tab4 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "💸 Transactions", "📈 Analytics"])
+
+    with tab1:
         st.subheader("📌 Account Info")
-        st.json(personal_df_jan)
+        st.dataframe(personal_df)
 
-    with col2:
+    with tab2:
         st.subheader("📊 Monthly Summary")
-        st.json(summary_df_jan)
+        st.dataframe(summary_df)
+
+    with tab3:
+        st.subheader("💸 Transaction Details")
+        st.dataframe(txn_df)
+
+    with tab4:
+        st.subheader("📈 Transaction Analytics")
+        st.dataframe(analytics_df)
 
     with st.expander("📄 Show Raw Extracted Text"):
-        st.text_area("Text from PDF", text, height=300)
-"""
+        st.text_area("Extracted Text", full_text, height=300)
+""")
 
-# Save this to a Python file for the user
-app_file_path = "/mnt/data/streamlit_app.py"
-with open(app_file_path, "w", encoding="utf-8") as f:
-    f.write(streamlit_app_code)
+# Save to downloadable Python file
+final_app_path = "/mnt/data/streamlit_app_clean.py"
+with open(final_app_path, "w", encoding="utf-8") as f:
+    f.write(final_app_code)
 
-app_file_path
+final_app_path
