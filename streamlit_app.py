@@ -499,7 +499,7 @@ if uploaded_pdf:
 """)
 
 # Save to downloadable Python file
-final_app_path = "/mnt/data/streamlit_app_clean.py"
+final_app_path = "/streamlit_app.py"
 with open(final_app_path, "w", encoding="utf-8") as f:
     f.write(final_app_code)
 
