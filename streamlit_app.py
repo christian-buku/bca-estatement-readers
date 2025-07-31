@@ -1,6 +1,13 @@
+import subprocess
+import sys
+
+try:
+    import fitz
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyMuPDF"])
+    import fitz
 
 import streamlit as st
-import fitz  # PyMuPDF
 import pandas as pd
 import re
 from collections import defaultdict
@@ -464,7 +471,7 @@ if uploaded_pdf:
 
     # Read bytes once and reuse
     pdf_bytes = uploaded_pdf.read()
-    personal_df, summary_df, txn_df, analytics_df, full_text = parse_bca_statement(io.BytesIO(pdf_bytes))
+    personal_df, summary_df, txn_df, analytics_df = parse_bca_statement(io.BytesIO(pdf_bytes))
 
     tab1, tab2, tab3, tab4 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "💸 Transactions", "📈 Analytics"])
 
@@ -479,7 +486,3 @@ if uploaded_pdf:
 
     with tab4:
         st.dataframe(analytics_df)
-
-    with st.expander("📄 Show Raw Extracted Text"):
-        st.text_area("Extracted Text", full_text, height=300)
-
