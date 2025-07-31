@@ -481,7 +481,7 @@ if uploaded_pdf:
 """
 
 # Save this to a Python file for the user
-app_file_path = "/mnt/data/bca_streamlit_app.py"
+app_file_path = "/mnt/data/streamlit_app.py"
 with open(app_file_path, "w", encoding="utf-8") as f:
     f.write(streamlit_app_code)
 
