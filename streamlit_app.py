@@ -486,8 +486,8 @@ if uploaded_pdf:
 """
 
 # Save it to file for deployment
-fixed_app_path = "/mnt/data/streamlit_app.py"
-# with open(fixed_app_path, "w", encoding="utf-8") as f:
-#     f.write(updated_code)
+fixed_app_path = "/streamlit_app.py"
+with open(fixed_app_path, "w", encoding="utf-8") as f:
+    f.write(updated_code)
 
 fixed_app_path
