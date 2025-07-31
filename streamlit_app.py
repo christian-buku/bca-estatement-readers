@@ -1,1 +1,488 @@
 
+import pandas as pd
+
+# Build the expected structure of app.py for Streamlit with all logic combined
+streamlit_app_code = """
+import streamlit as st
+import fitz  # PyMuPDF
+import pandas as pd
+import re
+
+# ---------------------- PDF Processing Functions ---------------------- #
+def extract_text_from_pdf(uploaded_file):
+    with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
+        return "\\n".join([page.get_text() for page in doc])
+
+def clean_statement_lines(text):
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+def convert_to_int(amount_str):
+    if amount_str is None:
+        return None
+    try:
+        cleaned = amount_str.replace(",", "")
+        match = re.match(r"^(\\d+\\.\\d{2})", cleaned)
+        return float(match.group(1)) if match else float(cleaned)
+    except:
+        return None
+
+def extract_personal_info(text):
+    lines = clean_statement_lines(text)
+    info = {"Account Name": None, "Account Number": None, "Period": None, "Currency": None, "Branch": None}
+    for i, line in enumerate(lines):
+        if line.upper().startswith("KCP "):
+            info["Branch"] = line.strip()
+            if i + 1 < len(lines):
+                info["Account Name"] = lines[i + 1].strip()
+        if "NO. REKENING" in line.upper():
+            info["Account Number"] = lines[i + 2].strip() if i + 2 < len(lines) else None
+        if "PERIODE" in line.upper():
+            info["Period"] = lines[i + 2].strip() if i + 2 < len(lines) else None
+        if "MATA UANG" in line.upper():
+            info["Currency"] = lines[i + 2].strip() if i + 2 < len(lines) else None
+    return info
+
+def extract_monthly_summary(text):
+    summary = {
+        "Saldo Awal": None,
+        "Mutasi Kredit": None,
+        "Mutasi Kredit Count": None,
+        "Mutasi Debet": None,
+        "Mutasi Debet Count": None,
+        "Saldo Akhir": None,
+    }
+    footer_text = "\\n".join(text.splitlines()[-50:])
+    patterns = {
+        "Saldo Awal": r"SALDO AWAL\\s*:?[\\n\\s]*([\\d.,]+)",
+        "Mutasi Kredit": r"MUTASI CR\\s*:?[\\n\\s]*([\\d.,]+)",
+        "Mutasi Kredit Count": r"MUTASI CR.*?\\n.*?\\n.*?(\\d{1,4})",
+        "Mutasi Debet": r"MUTASI DB\\s*:?[\\n\\s]*([\\d.,]+)",
+        "Mutasi Debet Count": r"MUTASI DB.*?\\n.*?\\n.*?(\\d{1,4})",
+        "Saldo Akhir": r"SALDO AKHIR\\s*:?[\\n\\s]*([\\d.,]+)",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, footer_text, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            val = round(convert_to_int(match.group(1)), 2)
+            summary[key] = int(val) if "Count" in key else val
+    return summary
+
+def extract_partner_name(description):
+   skip_keywords = ["BIAYA", "ADM", "BUNGA", "PAJAK", "KLIRING", "TARIK TUNAI", "SETORAN", "BI-FAST"]
+   if any(keyword in description.upper() for keyword in skip_keywords):
+       return None
+
+   cleaned = description.strip()
+   cleaned = re.sub(r"BERSAMBUNG.*", "", cleaned, flags=re.IGNORECASE)
+   cleaned = re.sub(r"REKENING.*", "", cleaned, flags=re.IGNORECASE)
+   cleaned = re.sub(r"KCP.*", "", cleaned, flags=re.IGNORECASE)
+   cleaned = re.sub(r"HALAMAN.*", "", cleaned, flags=re.IGNORECASE)
+   cleaned = re.sub(r"INDONESIA.*", "", cleaned, flags=re.IGNORECASE)
+   cleaned = re.sub(r"\b(DB|CR)\b", "", cleaned)
+   cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+   if "TRSF E-BANKING" in cleaned.upper():
+       after_trsf = re.sub(r'^TRSF E-BANKING\s+\d+/[A-Z]+/\w+\s*', '', cleaned, flags=re.IGNORECASE)
+       after_trsf = re.sub(r'REF:\w+\s*', '', after_trsf)
+       after_trsf = re.sub(r'DC\s+\d+\s*', '', after_trsf)
+
+       # Strategy 1: Alphanumeric separator (S202306000045)
+       alphanumeric_match = re.search(r'\b[A-Z]+\d{6,}\w*\b', after_trsf)
+       if alphanumeric_match:
+           partner_text = after_trsf[alphanumeric_match.end():].strip()
+           if partner_text:
+               alphabetic_words = [word for word in partner_text.split()
+                                  if word.isalpha() and len(word) >= 1]
+               if alphabetic_words:
+                   return ' '.join(alphabetic_words)
+
+       # Strategy 2: Remove noise patterns and take end
+       noise_patterns = [
+           r'titip\s+\d+\s*',
+           r'transaksi\s+\d+\s+\w+\s+\w+\s+\d{4}\s*',
+           r'MARKETING\s+SUPPORT\s+\w+\s+\w+\s+\d{4}\s*',
+           r'\w+\s+\d{8}\s*',
+           r'BSML\s+\w+\s*'
+       ]
+
+       for pattern in noise_patterns:
+           after_trsf = re.sub(pattern, '', after_trsf, flags=re.IGNORECASE)
+
+       alphabetic_words = [word for word in after_trsf.split()
+                          if word.isalpha() and len(word) >= 2]
+
+       if alphabetic_words:
+           return ' '.join(alphabetic_words[-3:] if len(alphabetic_words) >= 3 else alphabetic_words)
+
+   elif "KR OTOMATIS" in cleaned.upper():
+       after_kr = None
+
+       # Handle RTGS pattern
+       if "RTGS-PT. BANK" in cleaned:
+           after_kr = re.sub(r'^KR OTOMATIS RTGS-PT\. BANK [A-Z\s]+ BRINIDJA/\d+\s*', '', cleaned, flags=re.IGNORECASE)
+
+       # Handle LLG pattern
+       elif "LLG-" in cleaned:
+           after_kr = re.sub(r'^KR OTOMATIS\s+LLG-[A-Z]+\s*', '', cleaned, flags=re.IGNORECASE)
+
+       if after_kr:
+           # Priority: Split by TRX (for RTGS cases)
+           if "TRX" in after_kr:
+               before_trx = after_kr.split("TRX")[0].strip()
+               alphabetic_words = [word for word in before_trx.split()
+                                  if word.isalpha() and len(word) >= 1]
+               if alphabetic_words:
+                   return ' '.join(alphabetic_words)
+
+           # Split by BSML
+           bsml_match = re.search(r'\s+BSML\s+\w+', after_kr)
+           if bsml_match:
+               partner_text = after_kr[:bsml_match.start()].strip()
+               alphabetic_words = [word for word in partner_text.split()
+                                  if word.isalpha() and len(word) >= 1]
+               if alphabetic_words:
+                   return ' '.join(alphabetic_words)
+
+           # Split by pipe
+           pipe_match = re.search(r'\s*\|\s*\d+', after_kr)
+           if pipe_match:
+               partner_text = after_kr[:pipe_match.start()].strip()
+               alphabetic_words = [word for word in partner_text.split()
+                                  if word.isalpha() and len(word) >= 1]
+               if alphabetic_words:
+                   return ' '.join(alphabetic_words)
+
+           # Split by end numbers
+           end_numbers_match = re.search(r'\s+\d{4}\s*$', after_kr)
+           if end_numbers_match:
+               partner_text = after_kr[:end_numbers_match.start()].strip()
+               partner_text = re.sub(r'BP\d+\s+\d+BP\d+\s+\d+\s+-\d+\s*', '', partner_text)
+               alphabetic_words = [word for word in partner_text.split()
+                                  if word.isalpha() and len(word) >= 2]
+               if alphabetic_words:
+                   return ' '.join(alphabetic_words)
+
+   return None
+
+
+def extract_transactions(text):
+    lines = clean_statement_lines(text)
+    transactions = []
+    buffer = []
+
+    for line in lines:
+        if re.match(r"^\d{2}/\d{2}$", line):
+          # Skip jika ini tanggal lengkap (dd/mm/yyyy)
+          if re.match(r"^\d{2}/\d{2}/\d{4}$", line.strip()):
+              if buffer:
+                  buffer.append(line)
+          # Skip jika ini bulan/tahun (mm/yyyy)
+          elif re.match(r"^\d{2}/\d{4}$", line.strip()):
+              # Contoh: "01/2025" - ini bulan/tahun, bukan transaksi
+              if buffer:
+                  buffer.append(line)
+          # Skip jika dimulai dengan dd/mm tapi sepertinya referensi/ID bukan transaksi baru
+          elif re.match(r"^\d{2}/\d{2}\s+(WSID:|REF:|ID:|TXN:|\w+:|/\w+)", line, re.IGNORECASE):
+              # Contoh: "04/01 WSID:Z8351" atau "01/02 /Z83000" - ini referensi, bukan transaksi baru
+              if buffer:
+                  buffer.append(line)
+          # Cek apakah ini benar-benar transaksi baru (dd/mm + kata kunci transaksi)
+          elif re.search(r"^\d{2}/\d{2}\s+(SETORAN|TRSF|TRANSFER|OTOMATIS|TARIK|KLIRING|BUNGA|BIAYA|KOREKSI|ADM)", line, re.IGNORECASE):
+              # Ini transaksi baru yang valid
+              if buffer:
+                  transactions.append(" ".join(buffer).strip())
+                  buffer = []
+              buffer.append(line)
+          else:
+              # Default: jika dimulai dd/mm tapi tidak jelas, anggap sebagai transaksi baru
+              # (untuk backward compatibility)
+              if buffer:
+                  transactions.append(" ".join(buffer).strip())
+                  buffer = []
+              buffer.append(line)
+        elif buffer:
+          buffer.append(line)
+
+    if buffer:
+        last_tx = " ".join(buffer).strip()
+        last_tx_cleaned = re.split(r"SALDO AWAL\s*:", last_tx, flags=re.IGNORECASE)[0].strip()
+        transactions.append(last_tx_cleaned)
+
+    parsed = []
+    saldo_awal = None
+    current_balance = 0
+
+    for record in transactions:
+        date_match = re.match(r"^(\d{2}/\d{2})", record)
+        date = date_match.group(1) if date_match else None
+        clean_record = record.replace(",", "")
+
+        all_numbers = re.findall(r"\b(?:\d{1,3}(?:,\d{3})+|\d{4,})\.\d{2}\b", clean_record)
+        all_unique = list(dict.fromkeys(all_numbers))
+        amount_str = all_unique[-2] if len(all_unique) >= 2 else (
+            all_unique[-1] if len(all_unique) == 1 else None)
+        ending_balance_str = all_unique[-1] if all_unique else None
+
+        # Konversi ke integer
+        amount = convert_to_int(amount_str)
+        ending_balance = convert_to_int(ending_balance_str)
+        txn_type_match = re.search(r"\b(DB|CR)\b", record)
+        txn_type = txn_type_match.group(1) if txn_type_match else None
+
+        description = re.sub(r"\d{2}/\d{2}", "", record)
+        description = re.sub(r"\b(DB|CR)\b", "", description)
+        description = re.sub(r"(\d{1,3}(?:,\d{3})*|\d+)\.\d{2}", "", description)
+        description = re.sub(r"\s{2,}", " ", description).strip()
+
+        # Remove known footer/header fragments
+        noise_patterns = [
+            r"Bersambung ke halaman berikut",
+            r"REKENING GIRO.*",
+            r"NO\.?\s*REKENING\s*:? .*",
+            r"PERIODE\s*:? .*",
+            r"MATA UANG\s*:? .*",
+            r"HALAMAN\s*:? .*",
+            r"INDONESIA",
+            r"CATATAN:.*",
+            r"TANGGAL KETERANGAN.*",
+            r"\d{1,2}\s*/\s*\d{2,}"  # page X / Y
+        ]
+        for pat in noise_patterns:
+            description = re.sub(pat, "", description, flags=re.IGNORECASE)
+        description = re.sub(r"\s{2,}", " ", description).strip()
+        partner_name = extract_partner_name(description)
+
+        # Cek apakah ini adalah SALDO AWAL
+        if "SALDO AWAL" in description.upper():
+            saldo_awal = amount if amount is not None else 0
+            current_balance = saldo_awal
+            calculated_ending_balance = round(current_balance, 2)
+            parsed.append({
+                "Date": date,
+                "Description": description,
+                "Amount": amount,
+                "Type": txn_type,
+                "Detected_Type": None,  # Saldo awal bukan transaksi
+                "Ending Balance": ending_balance,
+                "Calculated_Ending_Balance": calculated_ending_balance,
+                "Partner": None
+            })
+            continue
+
+        # Jika bukan saldo awal, hitung ending balance
+        calculated_ending_balance = round(current_balance, 2)
+        is_credit = False
+        is_debit = False
+        if amount is not None:
+
+            is_credit = False
+            is_debit = False
+            # 1. Cek berdasarkan txn_type dari PDF
+            if txn_type == "CR":
+                is_credit = True
+            elif txn_type == "DB":
+                is_debit = True
+            # 2. Cek berdasarkan description (override txn_type jika perlu)
+            description_upper = description.upper()
+
+            credit_keywords = [
+                "SETORAN",
+                "TRANSFER MASUK",
+                "KLIRING MASUK",
+                "BUNGA",
+                "KOREKSI KREDIT",
+                "TRSF E-BANKING CR",
+                "E-BANKING CR",
+                "TRANSFER CR",
+                "GIRO MASUK",
+                "OTOMATIS"
+            ]
+
+            debit_keywords = [
+                "TARIK TUNAI",
+                "TRANSFER KELUAR",
+                "KLIRING KELUAR",
+                "BIAYA ADM",
+                "ADM",
+                "KOREKSI DEBET",
+                "TRSF E-BANKING DB",
+                "E-BANKING DB",
+                "TRANSFER DB",
+                "B.ADM",
+                "PAJAK BUNGA"
+            ]
+
+            # Cek credit keywords
+            for keyword in credit_keywords:
+                if keyword in description_upper:
+                    is_credit = True
+                    is_debit = False
+                    break
+
+            # Cek debit keywords (prioritas lebih tinggi dari credit)
+            for keyword in debit_keywords:
+                if keyword in description_upper:
+                    is_debit = True
+                    is_credit = False
+                    break
+
+            # Count balance based on transaction type
+            if is_credit:
+                current_balance += amount
+            elif is_debit:
+                current_balance -= amount
+            else:
+                # Jika tidak bisa ditentukan, gunakan txn_type default atau skip
+                print(f"Warning: Cannot determine transaction type for: {description}")
+            calculated_ending_balance = round(current_balance, 2)
+
+        parsed.append({
+            "Date": date,
+            "Description": description,
+            "Amount": amount,
+            "Type": txn_type,  # Type asli dari PDF
+            "Detected_Type": "CR" if is_credit else ("DB" if is_debit else None),  # Type hasil deteksi
+            "Ending Balance": ending_balance,  # Dari PDF (bisa None)
+            "Calculated_Ending_Balance": calculated_ending_balance,
+            "Partner": partner_name
+        })
+    return parsed
+
+def calculate_additional_analytics(transactions_df, summary_df):
+
+    analytics = {}
+    begin_balance = None
+    end_balance = None
+
+    if not summary_df.empty and 'Saldo Awal' in summary_df.columns:
+        saldo_awal_str = summary_df['Saldo Awal'].iloc[0]
+        if saldo_awal_str:
+            begin_balance = summary_df['Saldo Awal'].iloc[0]
+
+    if not summary_df.empty and 'Saldo Akhir' in summary_df.columns:
+        saldo_akhir_str = summary_df['Saldo Akhir'].iloc[0]
+        if saldo_akhir_str:
+            end_balance = summary_df['Saldo Akhir'].iloc[0]
+
+    # If not available in summary, get from transactions
+    if begin_balance is None and not transactions_df.empty:
+        first_transaction = transactions_df.iloc[0]
+        if 'SALDO AWAL' in str(first_transaction['Description']).upper():
+            begin_balance = first_transaction['Amount']
+
+    if end_balance is None and not transactions_df.empty:
+        end_balance = transactions_df['Calculated_Ending_Balance'].iloc[-1]
+
+    # 1. Difference: |Begin balance - End Balance|
+    if begin_balance is not None and end_balance is not None:
+        analytics['Difference'] = round(abs(begin_balance - end_balance), 2)
+    else:
+        analytics['Difference'] = None
+
+    # Filter out SALDO AWAL transactions for analysis
+    regular_transactions = transactions_df[
+        ~transactions_df['Description'].str.upper().str.contains('SALDO AWAL', na=False)
+    ]
+
+    # 2. No. of Credit: Berapa kali transaksi credit dilakukan
+    credit_transactions = regular_transactions[
+        regular_transactions['Detected_Type'] == 'CR'
+    ]
+    analytics['No_of_Credit'] = len(credit_transactions)
+
+    # 3. No. of Debit: Berapa kali transaksi debit dilakukan
+    debit_transactions = regular_transactions[
+        regular_transactions['Detected_Type'] == 'DB'
+    ]
+    analytics['No_of_Debit'] = len(debit_transactions)
+
+    # 4. Total amount transaksi credit
+    total_credit_amount = credit_transactions['Amount'].sum()
+    analytics['Total_Credit_Amount'] = round(total_credit_amount, 2) if pd.notna(total_credit_amount) else 0.0
+
+    # 5. Total amount transaksi debit
+    total_debit_amount = debit_transactions['Amount'].sum()
+    analytics['Total_Debit_Amount'] = round(total_debit_amount, 2) if pd.notna(total_debit_amount) else 0.0
+
+    # 6. Partner analysis (tujuan transfer) untuk credit transactions
+    partners_credit = defaultdict(float)
+    i = 0
+    for _, txn in credit_transactions.iterrows():
+        partner = txn['Partner']
+        amount = txn['Amount']
+        if partner and pd.notna(amount):
+            # i+= 1
+            # print(i, " ", amount)
+            partners_credit[partner] += amount
+
+    # Convert to sorted list of tuples (partner, total_amount)
+    partners_sorted = sorted(partners_credit.items(), key=lambda x: x[1], reverse=True)
+
+    # Store partner analysis
+    analytics['Partners_Credit'] = {
+        partner: round(amount, 2) for partner, amount in partners_sorted
+    }
+
+    # Summary stats for partners
+    analytics['Total_Partners'] = len(partners_sorted)
+    analytics['Top_Partner'] = partners_sorted[0][0] if partners_sorted else None
+    analytics['Top_Partner_Amount'] = round(partners_sorted[0][1], 2) if partners_sorted else 0.0
+
+    analytics['Top_10_Partners'] = {
+    partner: round(amount, 2) for partner, amount in partners_sorted[:10]
+    }
+
+    return analytics
+
+def parse_bca_statement(pdf_path):
+    full_text = extract_text_from_pdf(pdf_path)
+    personal_info = extract_personal_info(full_text)
+    summary_info = extract_monthly_summary(full_text)
+    transactions = extract_transactions(full_text)
+
+    personal_df = pd.DataFrame([personal_info])
+    summary_df = pd.DataFrame([summary_info])
+    txn_df = pd.DataFrame(transactions)
+
+    # Calculate additional analytics
+    analytics = calculate_additional_analytics(txn_df, summary_df)
+    analytics_df = pd.DataFrame([analytics])
+
+    return personal_df, summary_df, txn_df, analytics_df
+
+jan_pdf_path = f"/content/drive/.shortcut-targets-by-id/{folder_id}/Kemilau_Phala_Wijaya_PT/BCA KPW 5599 Jan 2025.pdf"
+personal_df_jan, summary_df_jan, transactions_df_jan, analytics_df_jan = parse_bca_statement(jan_pdf_path)
+
+
+
+# ---------------------- Streamlit App UI ---------------------- #
+st.set_page_config(page_title="BCA E-Statement Reader", layout="wide")
+st.title("📄 BCA E-Statement Reader")
+
+uploaded_pdf = st.file_uploader("Upload a BCA PDF e-statement", type="pdf")
+
+if uploaded_pdf:
+    st.success("✅ PDF uploaded. Processing...")
+
+    personal_df_jan, summary_df_jan, transactions_df_jan, analytics_df_jan = parse_bca_statement(uploaded_pdf)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("📌 Account Info")
+        st.json(personal_df_jan)
+
+    with col2:
+        st.subheader("📊 Monthly Summary")
+        st.json(summary_df_jan)
+
+    with st.expander("📄 Show Raw Extracted Text"):
+        st.text_area("Text from PDF", text, height=300)
+"""
+
+# Save this to a Python file for the user
+app_file_path = "/mnt/data/bca_streamlit_app.py"
+with open(app_file_path, "w", encoding="utf-8") as f:
+    f.write(streamlit_app_code)
+
+app_file_path
