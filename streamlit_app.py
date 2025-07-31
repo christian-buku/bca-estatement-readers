@@ -1,12 +1,4 @@
-import subprocess
-import sys
-
-try:
-    import fitz
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyMuPDF"])
-    import fitz
-
+import fitz
 import streamlit as st
 import pandas as pd
 import re
