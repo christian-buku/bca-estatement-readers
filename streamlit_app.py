@@ -1,5 +1,4 @@
-# Update `streamlit_app_clean.py` with a fixed version that handles file streams correctly
-updated_code = """
+
 import streamlit as st
 import fitz  # PyMuPDF
 import pandas as pd
@@ -483,11 +482,4 @@ if uploaded_pdf:
 
     with st.expander("📄 Show Raw Extracted Text"):
         st.text_area("Extracted Text", full_text, height=300)
-"""
 
-# Save it to file for deployment
-fixed_app_path = "/streamlit_app.py"
-with open(fixed_app_path, "w", encoding="utf-8") as f:
-    f.write(updated_code)
-
-fixed_app_path
