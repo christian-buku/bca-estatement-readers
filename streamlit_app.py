@@ -513,7 +513,7 @@ if uploaded_pdf:
     pdf_bytes = uploaded_pdf.read()
     personal_df, summary_df, trx_df, partner_trx_df, analytics_df = parse_bca_statement(io.BytesIO(pdf_bytes))
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "📈 Analytics", "💸 Transactions", "💳 Partner Transactions"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "📈 Analytics", "💸 Transactions", "💳 Partner Transactions"])
 
     with tab1:
         st.dataframe(personal_df)
