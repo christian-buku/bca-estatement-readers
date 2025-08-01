@@ -29,18 +29,36 @@ def convert_to_int(amount_str):
 
 def extract_personal_info(text):
     lines = clean_statement_lines(text)
-    info = {"Account Name": None, "Account Number": None, "Period": None, "Currency": None, "Branch": None}
+    info = {"Bank": "BCA", "Account Name": None, "Account Number": None, "Branch": None, "Period": None, "Currency": None}
+    
     for i, line in enumerate(lines):
         if line.upper().startswith("KCP "):
             info["Branch"] = line.strip()
-            if i + 1 < len(lines):
-                info["Account Name"] = lines[i + 1].strip()
-        if "NO. REKENING" in line.upper():
-            info["Account Number"] = lines[i + 2].strip() if i + 2 < len(lines) else None
-        if "PERIODE" in line.upper():
-            info["Period"] = lines[i + 2].strip() if i + 2 < len(lines) else None
-        if "MATA UANG" in line.upper():
-            info["Currency"] = lines[i + 2].strip() if i + 2 < len(lines) else None
+            for j in range(i+1, len(lines)):
+                if lines[j].strip():
+                    info["Account Name"] = lines[j].strip()
+                    break
+            break
+
+    for i, line in enumerate(lines):
+        line_upper = line.upper()
+        if "NO. REKENING" in line_upper and not info["Account Number"]:
+            if i + 2 < len(lines):
+                possible_number = lines[i + 2].strip()
+                if re.fullmatch(r"\d{6,}", possible_number):
+                    info["Account Number"] = possible_number
+
+        if "PERIODE" in line_upper and not info["Period"]:
+            if i + 2 < len(lines):
+                possible_period = lines[i + 2].strip()
+                if re.match(r"[A-Z]+\s+\d{4}", possible_period, re.IGNORECASE):
+                    info["Period"] = possible_period
+
+        if "MATA UANG" in line_upper and not info["Currency"]:
+            if i + 2 < len(lines):
+                possible_currency = lines[i + 2].strip()
+                if re.match(r"[A-Z]{2,4}", possible_currency):
+                    info["Currency"] = possible_currency
     return info
 
 def extract_monthly_summary(text):
@@ -59,9 +77,7 @@ def extract_monthly_summary(text):
         "Saldo Awal": r"SALDO AWAL\s*:?[\n\s]*([\d.,]+)",
         "Saldo Akhir": r"SALDO AKHIR\s*:?[\n\s]*([\d.,]+)",
         "Mutasi Kredit": r"MUTASI CR\s*:?[\n\s]*([\d.,]+)",
-        "No. Of Credit": r"MUTASI CR.*?\n.*?\n.*?(\d{1,4})",
         "Mutasi Debet": r"MUTASI DB\s*:?[\n\s]*([\d.,]+)",
-        "No. Of Debit": r"MUTASI DB.*?\n.*?\n.*?(\d{1,4})",
     }
 
     for key, pattern in patterns.items():
@@ -73,6 +89,7 @@ def extract_monthly_summary(text):
     return summary
 
 def extract_partner_name(description):
+
    skip_keywords = ["BIAYA", "ADM", "BUNGA", "PAJAK", "KLIRING", "TARIK TUNAI", "SETORAN", "BI-FAST"]
    if any(keyword in description.upper() for keyword in skip_keywords):
        return None
@@ -91,7 +108,7 @@ def extract_partner_name(description):
        after_trsf = re.sub(r'REF:\w+\s*', '', after_trsf)
        after_trsf = re.sub(r'DC\s+\d+\s*', '', after_trsf)
 
-       # Strategy 1: Alphanumeric separator (S202306000045)
+       # Alphanumeric separator (S202306000045)
        alphanumeric_match = re.search(r'\b[A-Z]+\d{6,}\w*\b', after_trsf)
        if alphanumeric_match:
            partner_text = after_trsf[alphanumeric_match.end():].strip()
@@ -101,7 +118,7 @@ def extract_partner_name(description):
                if alphabetic_words:
                    return ' '.join(alphabetic_words)
 
-       # Strategy 2: Remove noise patterns and take end
+       # Remove noise patterns and take end
        noise_patterns = [
            r'titip\s+\d+\s*',
            r'transaksi\s+\d+\s+\w+\s+\w+\s+\d{4}\s*',
@@ -169,7 +186,6 @@ def extract_partner_name(description):
 
    return None
 
-
 def extract_transactions(text):
     lines = clean_statement_lines(text)
     transactions = []
@@ -200,7 +216,6 @@ def extract_transactions(text):
               buffer.append(line)
           else:
               # Default: jika dimulai dd/mm tapi tidak jelas, anggap sebagai transaksi baru
-              # (untuk backward compatibility)
               if buffer:
                   transactions.append(" ".join(buffer).strip())
                   buffer = []
@@ -257,7 +272,7 @@ def extract_transactions(text):
         description = re.sub(r"\s{2,}", " ", description).strip()
         partner_name = extract_partner_name(description)
 
-        # Cek apakah ini adalah SALDO AWAL
+        # Check if SALDO AWAL
         if "SALDO AWAL" in description.upper():
             saldo_awal = amount if amount is not None else 0
             current_balance = saldo_awal
@@ -266,15 +281,15 @@ def extract_transactions(text):
                 "Date": date,
                 "Description": description,
                 "Amount": amount,
-                "Type": txn_type,
-                "Detected_Type": None,  # Saldo awal bukan transaksi
-                "Ending Balance": ending_balance,
-                "Calculated_Ending_Balance": calculated_ending_balance,
+                # "Type": txn_type,
+                "Transaction Type": None,
+                # "Ending Balance": ending_balance,
+                "Ending Balance": calculated_ending_balance,
                 "Partner": None
             })
             continue
 
-        # Jika bukan saldo awal, hitung ending balance
+        # If not SALDO AWAL, count ending balance
         calculated_ending_balance = round(current_balance, 2)
         is_credit = False
         is_debit = False
@@ -345,44 +360,19 @@ def extract_transactions(text):
             "Date": date,
             "Description": description,
             "Amount": amount,
-            "Type": txn_type,  # Type asli dari PDF
-            "Detected_Type": "CR" if is_credit else ("DB" if is_debit else None),  # Type hasil deteksi
-            "Ending Balance": ending_balance,  # Dari PDF (bisa None)
-            "Calculated_Ending_Balance": calculated_ending_balance,
+            # "Type": txn_type,  # Type asli dari PDF
+            "Transaction Type": "CR" if is_credit else ("DB" if is_debit else None),  # Type hasil deteksi
+            # "Ending Balance": ending_balance,  # Dari PDF (bisa None)
+            "Ending Balance": calculated_ending_balance,
             "Partner": partner_name
         })
     return parsed
 
-def calculate_additional_analytics(transactions_df, summary_df):
+def additional_analytics(transactions_df, summary_df):
 
     analytics = {}
     begin_balance = None
     end_balance = None
-
-    if not summary_df.empty and 'Saldo Awal' in summary_df.columns:
-        saldo_awal_str = summary_df['Saldo Awal'].iloc[0]
-        if saldo_awal_str:
-            begin_balance = summary_df['Saldo Awal'].iloc[0]
-
-    if not summary_df.empty and 'Saldo Akhir' in summary_df.columns:
-        saldo_akhir_str = summary_df['Saldo Akhir'].iloc[0]
-        if saldo_akhir_str:
-            end_balance = summary_df['Saldo Akhir'].iloc[0]
-
-    # If not available in summary, get from transactions
-    if begin_balance is None and not transactions_df.empty:
-        first_transaction = transactions_df.iloc[0]
-        if 'SALDO AWAL' in str(first_transaction['Description']).upper():
-            begin_balance = first_transaction['Amount']
-
-    if end_balance is None and not transactions_df.empty:
-        end_balance = transactions_df['Calculated_Ending_Balance'].iloc[-1]
-
-    # 1. Difference: |Begin balance - End Balance|
-    if begin_balance is not None and end_balance is not None:
-        analytics['Difference'] = round(abs(begin_balance - end_balance), 2)
-    else:
-        analytics['Difference'] = None
 
     # Filter out SALDO AWAL transactions for analysis
     regular_transactions = transactions_df[
@@ -391,13 +381,13 @@ def calculate_additional_analytics(transactions_df, summary_df):
 
     # 2. No. of Credit: Berapa kali transaksi credit dilakukan
     credit_transactions = regular_transactions[
-        regular_transactions['Detected_Type'] == 'CR'
+        regular_transactions['Transaction Type'] == 'CR'
     ]
     analytics['No_of_Credit'] = len(credit_transactions)
 
     # 3. No. of Debit: Berapa kali transaksi debit dilakukan
     debit_transactions = regular_transactions[
-        regular_transactions['Detected_Type'] == 'DB'
+        regular_transactions['Transaction Type'] == 'DB'
     ]
     analytics['No_of_Debit'] = len(debit_transactions)
 
@@ -423,38 +413,92 @@ def calculate_additional_analytics(transactions_df, summary_df):
     # Convert to sorted list of tuples (partner, total_amount)
     partners_sorted = sorted(partners_credit.items(), key=lambda x: x[1], reverse=True)
 
-    # Store partner analysis
-    analytics['Partners_Credit'] = {
-        partner: round(amount, 2) for partner, amount in partners_sorted
-    }
-
     # Summary stats for partners
     analytics['Total_Partners'] = len(partners_sorted)
     analytics['Top_Partner'] = partners_sorted[0][0] if partners_sorted else None
     analytics['Top_Partner_Amount'] = round(partners_sorted[0][1], 2) if partners_sorted else 0.0
 
-    analytics['Top_10_Partners'] = {
-    partner: round(amount, 2) for partner, amount in partners_sorted[:10]
-    }
-
     return analytics
+
+def extract_partner_transactions(transactions):
+    
+    if isinstance(transactions, list):
+        if not transactions:  # Handle empty list
+            return []
+        transactions_df = pd.DataFrame(transactions)
+    else:
+        transactions_df = transactions
+    
+    # Check if DataFrame is empty
+    if transactions_df.empty:
+        return []
+    
+    # Filter out SALDO AWAL transactions
+    regular_transactions = transactions_df[
+        ~transactions_df['Description'].str.upper().str.contains('SALDO AWAL', na=False)
+    ]
+    
+    # Filter transactions yang ada partner name
+    partner_transactions = regular_transactions[
+        (regular_transactions['Partner'].notna()) & 
+        (regular_transactions['Partner'].astype(str).str.strip() != '') &
+        (regular_transactions['Partner'].astype(str) != 'nan')
+    ]
+    
+    if partner_transactions.empty:
+        return []
+    
+    partner_summary = []
+    
+    # Group by partner
+    for partner in partner_transactions['Partner'].unique():
+        if pd.isna(partner) or str(partner).strip() == '':
+            continue
+            
+        partner_txns = partner_transactions[partner_transactions['Partner'] == partner]
+        
+        # Credit transactions
+        credit_txns = partner_txns[partner_txns['Transaction Type'] == 'CR']
+        total_credit = float(credit_txns['Amount'].fillna(0).sum()) if not credit_txns.empty else 0.0
+        
+        # Debit transactions  
+        debit_txns = partner_txns[partner_txns['Transaction Type'] == 'DB']
+        total_debit = float(debit_txns['Amount'].fillna(0).sum()) if not debit_txns.empty else 0.0
+        
+        # Add to summary
+        partner_summary.append({
+            'Partner': str(partner),
+            'Total_Credit': round(total_credit, 2),
+            'Total_Debit': round(total_debit, 2),
+            # 'Net_Amount': round(total_credit - total_debit, 2),
+            'Credit_Count': len(credit_txns),
+            'Debit_Count': len(debit_txns),
+            'Total_Transactions': len(partner_txns)
+        })
+    
+    # Sort by total activity
+    if partner_summary:
+        partner_summary.sort(key=lambda x: x['Total_Credit'], reverse=True)
+    
+    return partner_summary
 
 def parse_bca_statement(pdf_path):
     full_text = extract_text_from_pdf(pdf_path)
     personal_info = extract_personal_info(full_text)
     summary_info = extract_monthly_summary(full_text)
     transactions = extract_transactions(full_text)
+    partner_transactions = extract_partner_transactions(transactions)
 
     personal_df = pd.DataFrame([personal_info])
     summary_df = pd.DataFrame([summary_info])
-    txn_df = pd.DataFrame(transactions)
+    trx_df = pd.DataFrame(transactions)
+    partner_trx_df = pd.DataFrame(partner_transactions)
 
     # Calculate additional analytics
-    analytics = calculate_additional_analytics(txn_df, summary_df)
+    analytics = additional_analytics(trx_df, summary_df)
     analytics_df = pd.DataFrame([analytics])
 
-    return personal_df, summary_df, txn_df, analytics_df
-
+    return personal_df, summary_df, trx_df, partner_trx_df, analytics_df
     
 # ---------------------- Streamlit App UI ---------------------- #
 st.set_page_config(page_title="BCA E-Statement Reader", layout="wide")
@@ -469,7 +513,7 @@ if uploaded_pdf:
     pdf_bytes = uploaded_pdf.read()
     personal_df, summary_df, txn_df, analytics_df = parse_bca_statement(io.BytesIO(pdf_bytes))
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "💸 Transactions", "📈 Analytics"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "📈 Analytics", "💸 Transactions", "💳 Partner Transactions"])
 
     with tab1:
         st.dataframe(personal_df)
@@ -478,7 +522,10 @@ if uploaded_pdf:
         st.dataframe(summary_df)
 
     with tab3:
-        st.dataframe(txn_df)
+        st.dataframe(analytics_df)
 
     with tab4:
-        st.dataframe(analytics_df)
+        st.dataframe(txn_df)
+
+    with tab5:
+        st.dataframe(partner_trx_df)
