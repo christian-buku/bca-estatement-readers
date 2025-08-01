@@ -525,7 +525,7 @@ if uploaded_pdf:
         st.dataframe(analytics_df)
 
     with tab4:
-        st.dataframe(txn_df)
+        st.dataframe(trx_df)
 
     with tab5:
         st.dataframe(partner_trx_df)
