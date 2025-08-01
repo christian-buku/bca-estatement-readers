@@ -511,7 +511,7 @@ if uploaded_pdf:
 
     # Read bytes once and reuse
     pdf_bytes = uploaded_pdf.read()
-    personal_df, summary_df, txn_df, analytics_df = parse_bca_statement(io.BytesIO(pdf_bytes))
+    personal_df, summary_df, trx_df, partner_trx_df, analytics_df = parse_bca_statement(io.BytesIO(pdf_bytes))
 
     tab1, tab2, tab3, tab4 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "📈 Analytics", "💸 Transactions", "💳 Partner Transactions"])
 
