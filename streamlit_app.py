@@ -46,26 +46,30 @@ def extract_personal_info(text):
 def extract_monthly_summary(text):
     summary = {
         "Saldo Awal": None,
-        "Mutasi Kredit": None,
-        "Mutasi Kredit Count": None,
-        "Mutasi Debet": None,
-        "Mutasi Debet Count": None,
         "Saldo Akhir": None,
+        "Difference": None,
+        "Mutasi Kredit": None,
+        "No. Of Credit": None,
+        "Mutasi Debet": None,
+        "No. Of Debit": None
     }
-    footer_text = "\\n".join(text.splitlines()[-50:])
+
+    footer_text = "\n".join(text.splitlines()[-50:])
     patterns = {
-        "Saldo Awal": r"SALDO AWAL\\s*:?[\\n\\s]*([\\d.,]+)",
-        "Mutasi Kredit": r"MUTASI CR\\s*:?[\\n\\s]*([\\d.,]+)",
-        "Mutasi Kredit Count": r"MUTASI CR.?\\n.?\\n.*?(\\d{1,4})",
-        "Mutasi Debet": r"MUTASI DB\\s*:?[\\n\\s]*([\\d.,]+)",
-        "Mutasi Debet Count": r"MUTASI DB.?\\n.?\\n.*?(\\d{1,4})",
-        "Saldo Akhir": r"SALDO AKHIR\\s*:?[\\n\\s]*([\\d.,]+)",
+        "Saldo Awal": r"SALDO AWAL\s*:?[\n\s]*([\d.,]+)",
+        "Saldo Akhir": r"SALDO AKHIR\s*:?[\n\s]*([\d.,]+)",
+        "Mutasi Kredit": r"MUTASI CR\s*:?[\n\s]*([\d.,]+)",
+        "No. Of Credit": r"MUTASI CR.*?\n.*?\n.*?(\d{1,4})",
+        "Mutasi Debet": r"MUTASI DB\s*:?[\n\s]*([\d.,]+)",
+        "No. Of Debit": r"MUTASI DB.*?\n.*?\n.*?(\d{1,4})",
     }
+
     for key, pattern in patterns.items():
         match = re.search(pattern, footer_text, flags=re.IGNORECASE | re.DOTALL)
         if match:
             val = round(convert_to_int(match.group(1)), 2)
             summary[key] = int(val) if "Count" in key else val
+    summary['Difference'] = round(abs(summary['Saldo Akhir'] - summary['Saldo Awal']), 2)
     return summary
 
 def extract_partner_name(description):
