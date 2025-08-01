@@ -499,36 +499,6 @@ def parse_bca_statement(pdf_path):
     return personal_df, summary_df, trx_df, partner_trx_df, analytics_df
     
 # ---------------------- Streamlit App UI ---------------------- #
-# st.set_page_config(page_title="BCA E-Statement Reader", layout="wide")
-# st.title("📄 BCA E-Statement Reader")
-
-# uploaded_pdf = st.file_uploader("Upload a BCA PDF e-statement", type="pdf")
-
-# if uploaded_pdf:
-#     st.success("✅ PDF uploaded. Processing...")
-
-#     # Read bytes once and reuse
-#     pdf_bytes = uploaded_pdf.read()
-#     personal_df, summary_df, trx_df, partner_trx_df, analytics_df = parse_bca_statement(io.BytesIO(pdf_bytes))
-
-#     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "📈 Analytics", "💸 Transactions", "💳 Partner Transactions"])
-
-#     with tab1:
-#         st.dataframe(personal_df)
-
-#     with tab2:
-#         st.dataframe(summary_df)
-
-#     with tab3:
-#         st.dataframe(analytics_df)
-
-#     with tab4:
-#         st.dataframe(trx_df)
-
-#     with tab5:
-#         st.dataframe(partner_trx_df)
-
-# ---------------------- Streamlit App UI ---------------------- #
 st.set_page_config(page_title="BCA E-Statement Reader", layout="wide")
 st.title("📄 BCA E-Statement Reader")
 
@@ -570,36 +540,8 @@ if uploaded_pdf:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # Optional: Also provide CSV downloads
-    st.markdown("### Individual CSV Downloads")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.download_button(
-            label="📋 Transactions CSV",
-            data=trx_df.to_csv(index=False),
-            file_name="transactions.csv",
-            mime="text/csv"
-        )
-    
-    with col2:
-        st.download_button(
-            label="💳 Partners CSV", 
-            data=partner_trx_df.to_csv(index=False),
-            file_name="partners.csv",
-            mime="text/csv"
-        )
-    
-    with col3:
-        st.download_button(
-            label="📊 Summary CSV",
-            data=summary_df.to_csv(index=False),
-            file_name="summary.csv", 
-            mime="text/csv"
-        )
-
     st.markdown("---")
-
+    
     # Tabs section
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📌 Account Info", "📊 Monthly Summary", "📈 Analytics", "💸 Transactions", "💳 Partner Transactions"])
 
